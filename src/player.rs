@@ -2,13 +2,19 @@ use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use std::time::Duration;
 
-const PLAYER_HITBOX: (Vec2, Vec2, f32) = (Vec2::new(-4.0, -29.0), Vec2::new(-4.0, -13.0), 11.0);
+const PLAYER_HITBOX: (Vec2, Vec2, f32) = (Vec2::new(0.0, -30.0), Vec2::new(0.0, -12.0), 11.0);
+
+const PLAYER_SPRITE_GRID: (UVec2, u32, u32, Option<UVec2>, Option<UVec2>) =
+    (UVec2::new(110, 80), 10, 2, Some(UVec2::new(10, 0)), None);
 
 const IDLE_SPRITE_INDICES: (usize, usize) = (0, 9);
 const IDLE_SPRITE_TIMER: f32 = 0.1;
 
 const RUN_SPRITE_INDICES: (usize, usize) = (10, 19);
 const RUN_SPRITE_TIMER: f32 = 0.05;
+
+const PLAYER_SPEED: f32 = 500.0;
+const GRAVITY: f32 = -250.0;
 
 #[derive(States, Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
 pub enum PlayerDirection {
@@ -35,7 +41,10 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(PlayerState::Run), set_run)
             .add_systems(OnEnter(PlayerDirection::Right), set_sprite_right)
             .add_systems(OnEnter(PlayerDirection::Left), set_sprite_left)
-            .add_systems(Update, (set_animation, animate_player).chain());
+            .add_systems(
+                Update,
+                (update_player_state, (animate_player, move_player)).chain(),
+            );
     }
 }
 
@@ -76,7 +85,13 @@ fn spawn_player(
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     let texture = asset_server.load("player_sprite_sheet.png");
-    let layout = TextureAtlasLayout::from_grid(UVec2::new(120, 80), 10, 2, None, None);
+    let layout = TextureAtlasLayout::from_grid(
+        PLAYER_SPRITE_GRID.0,
+        PLAYER_SPRITE_GRID.1,
+        PLAYER_SPRITE_GRID.2,
+        PLAYER_SPRITE_GRID.3,
+        PLAYER_SPRITE_GRID.4,
+    );
     let texture_atlas_layout = texture_atlas_layouts.add(layout);
     let animation_indices = AnimationIndices {
         first: IDLE_SPRITE_INDICES.0,
@@ -86,7 +101,11 @@ fn spawn_player(
     commands.spawn(Camera2d);
 
     commands.spawn((
-        RigidBody::Dynamic,
+        RigidBody::KinematicPositionBased,
+        KinematicCharacterController {
+            offset: CharacterLength::Absolute(0.02),
+            ..default()
+        },
         Sprite::from_atlas_image(
             texture,
             TextureAtlas {
@@ -145,7 +164,7 @@ fn set_sprite_left(mut query: Query<&mut Sprite, With<Player>>) {
     }
 }
 
-fn set_animation(
+fn update_player_state(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     player_state: Res<State<PlayerState>>,
     mut next_player_state: ResMut<NextState<PlayerState>>,
@@ -191,5 +210,26 @@ fn set_animation(
                 next_player_state.set(PlayerState::Idle);
             }
         }
+    }
+}
+
+fn move_player(
+    mut query: Query<(&mut KinematicCharacterController, &GravityScale), With<Player>>,
+    player_state: Res<State<PlayerState>>,
+    player_direction: Res<State<PlayerDirection>>,
+    time: Res<Time>,
+) {
+    if let Ok((mut controller, gravity_scale)) = query.single_mut() {
+        let mut movement = Vec2::new(0.0, GRAVITY * gravity_scale.0);
+
+        match player_state.get() {
+            PlayerState::Run => match player_direction.get() {
+                PlayerDirection::Right => movement.x += PLAYER_SPEED,
+                PlayerDirection::Left => movement.x -= PLAYER_SPEED,
+            },
+            _ => (),
+        }
+
+        controller.translation = Some(movement * time.delta_secs());
     }
 }

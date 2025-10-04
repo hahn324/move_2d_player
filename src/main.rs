@@ -6,6 +6,7 @@ use player::PlayerPlugin;
 
 fn main() {
     App::new()
+        .insert_resource(ClearColor(Color::srgb(0.2, 0.2, 0.2)))
         .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         .add_plugins(RapierDebugRenderPlugin::default())

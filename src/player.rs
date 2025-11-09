@@ -25,7 +25,7 @@ const CROUCH_TIMER: f32 = 0.1;
 const CROUCH_WALK_SPRITE_INDICES: (usize, usize) = (34, 41);
 const CROUCH_WALK_TIMER: f32 = 0.08;
 
-const PLAYER_SPEED: f32 = 500.0;
+const PLAYER_SPEED: f32 = 550.0;
 const PLAYER_CROUCH_SPEED: f32 = 312.5;
 const PLAYER_DRIFT: f32 = 500.0;
 const PLAYER_JUMP_SPEED: f32 = 1000.0;
@@ -166,6 +166,7 @@ fn set_idle(
         animation_indices.last = IDLE_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(IDLE_SPRITE_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = animation_indices.first;
@@ -181,6 +182,7 @@ fn set_run(
         animation_indices.last = RUN_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(RUN_SPRITE_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = animation_indices.first;
@@ -196,6 +198,7 @@ fn set_jump(
         animation_indices.last = JUMP_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(JUMP_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = animation_indices.first;
@@ -211,6 +214,7 @@ fn set_jump_fall(
         animation_indices.last = JUMP_FALL_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(JUMP_FALL_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = animation_indices.first;
@@ -238,6 +242,7 @@ fn set_sprite_crouch(
         animation_indices.last = CROUCH_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(CROUCH_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = CROUCH_SPRITE_INDICES.0;
@@ -253,6 +258,7 @@ fn set_sprite_crouch_walk(
         animation_indices.last = CROUCH_WALK_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(CROUCH_WALK_TIMER));
+        animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
             atlas.index = animation_indices.first;
@@ -325,6 +331,7 @@ fn update_player_state(
 
     let pressed_control = keyboard_input.just_pressed(KeyCode::ControlLeft);
     let released_control = keyboard_input.just_released(KeyCode::ControlLeft);
+    let control_is_pressed = keyboard_input.pressed(KeyCode::ControlLeft);
 
     match player_state.get() {
         PlayerState::Idle => {
@@ -387,7 +394,11 @@ fn update_player_state(
                     if (right_is_pressed || left_is_pressed)
                         && !(right_is_pressed && left_is_pressed)
                     {
-                        next_player_state.set(PlayerState::Run);
+                        if control_is_pressed {
+                            next_player_state.set(PlayerState::CrouchWalk);
+                        } else {
+                            next_player_state.set(PlayerState::Run);
+                        }
                         match player_direction.get() {
                             PlayerDirection::Right => {
                                 if left_is_pressed {
@@ -401,7 +412,11 @@ fn update_player_state(
                             }
                         }
                     } else {
-                        next_player_state.set(PlayerState::Idle);
+                        if control_is_pressed {
+                            next_player_state.set(PlayerState::Crouch);
+                        } else {
+                            next_player_state.set(PlayerState::Idle);
+                        }
                     }
                 }
             }

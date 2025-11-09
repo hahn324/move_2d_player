@@ -5,30 +5,34 @@ use std::time::Duration;
 const PLAYER_HITBOX: (Vec2, Vec2, f32) = (Vec2::new(0.0, -30.0), Vec2::new(0.0, -12.0), 11.0);
 
 const PLAYER_SPRITE_GRID: (UVec2, u32, u32, Option<UVec2>, Option<UVec2>) =
-    (UVec2::new(110, 80), 17, 3, Some(UVec2::new(10, 0)), None);
+    (UVec2::new(110, 80), 17, 11, Some(UVec2::new(10, 0)), None);
 
-const IDLE_SPRITE_INDICES: (usize, usize) = (0, 9);
+const IDLE_SPRITE_INDICES: (usize, usize) = (68, 77);
 const IDLE_SPRITE_TIMER: f32 = 0.1;
 
-const RUN_SPRITE_INDICES: (usize, usize) = (17, 26);
+const RUN_SPRITE_INDICES: (usize, usize) = (36, 45);
 const RUN_SPRITE_TIMER: f32 = 0.05;
+const PLAYER_RUN_SPEED: f32 = 550.0;
 
-const JUMP_SPRITE_INDICES: (usize, usize) = (10, 12);
+const JUMP_SPRITE_INDICES: (usize, usize) = (65, 67);
 const JUMP_TIMER: f32 = 0.18;
+const PLAYER_JUMP_SPEED: f32 = 1000.0;
 
-const JUMP_FALL_SPRITE_INDICES: (usize, usize) = (13, 14);
+const PLAYER_DRIFT: f32 = 500.0;
+const JUMP_FALL_SPRITE_INDICES: (usize, usize) = (63, 64);
 const JUMP_FALL_TIMER: f32 = 0.25;
 
-const CROUCH_SPRITE_INDICES: (usize, usize) = (15, 16);
+const CROUCH_SPRITE_INDICES: (usize, usize) = (128, 129);
 const CROUCH_TIMER: f32 = 0.1;
 
-const CROUCH_WALK_SPRITE_INDICES: (usize, usize) = (34, 41);
+const CROUCH_WALK_SPRITE_INDICES: (usize, usize) = (119, 126);
 const CROUCH_WALK_TIMER: f32 = 0.08;
-
-const PLAYER_SPEED: f32 = 550.0;
 const PLAYER_CROUCH_SPEED: f32 = 312.5;
-const PLAYER_DRIFT: f32 = 500.0;
-const PLAYER_JUMP_SPEED: f32 = 1000.0;
+
+const SLIDE_SPRITE_INDICES: (usize, usize) = (30, 33);
+const SLIDE_TIMER: f32 = 0.175;
+const PLAYER_SLIDE_SPEED: f32 = 700.0;
+
 const GRAVITY: f32 = -500.0;
 
 #[derive(States, Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
@@ -47,6 +51,7 @@ pub enum PlayerState {
     JumpFall,
     Crouch,
     CrouchWalk,
+    Slide,
 }
 
 #[derive(States, Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
@@ -69,8 +74,9 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(PlayerState::Run), set_run)
             .add_systems(OnEnter(PlayerState::Jump), set_jump)
             .add_systems(OnEnter(PlayerState::JumpFall), set_jump_fall)
-            .add_systems(OnEnter(PlayerState::Crouch), set_sprite_crouch)
-            .add_systems(OnEnter(PlayerState::CrouchWalk), set_sprite_crouch_walk)
+            .add_systems(OnEnter(PlayerState::Crouch), set_crouch)
+            .add_systems(OnEnter(PlayerState::CrouchWalk), set_crouch_walk)
+            .add_systems(OnEnter(PlayerState::Slide), set_slide)
             .add_systems(OnEnter(PlayerDirection::Right), set_sprite_right)
             .add_systems(OnEnter(PlayerDirection::Left), set_sprite_left)
             .add_systems(
@@ -234,7 +240,7 @@ fn set_sprite_left(mut query: Query<&mut Sprite, With<Player>>) {
     }
 }
 
-fn set_sprite_crouch(
+fn set_crouch(
     mut query: Query<(&mut AnimationIndices, &mut AnimationTimer, &mut Sprite), With<Player>>,
 ) {
     if let Ok((mut animation_indices, mut animation_timer, mut sprite)) = query.single_mut() {
@@ -250,7 +256,7 @@ fn set_sprite_crouch(
     }
 }
 
-fn set_sprite_crouch_walk(
+fn set_crouch_walk(
     mut query: Query<(&mut AnimationIndices, &mut AnimationTimer, &mut Sprite), With<Player>>,
 ) {
     if let Ok((mut animation_indices, mut animation_timer, mut sprite)) = query.single_mut() {
@@ -258,6 +264,22 @@ fn set_sprite_crouch_walk(
         animation_indices.last = CROUCH_WALK_SPRITE_INDICES.1;
 
         animation_timer.set_duration(Duration::from_secs_f32(CROUCH_WALK_TIMER));
+        animation_timer.reset();
+
+        if let Some(atlas) = sprite.texture_atlas.as_mut() {
+            atlas.index = animation_indices.first;
+        }
+    }
+}
+
+fn set_slide(
+    mut query: Query<(&mut AnimationIndices, &mut AnimationTimer, &mut Sprite), With<Player>>,
+) {
+    if let Ok((mut animation_indices, mut animation_timer, mut sprite)) = query.single_mut() {
+        animation_indices.first = SLIDE_SPRITE_INDICES.0;
+        animation_indices.last = SLIDE_SPRITE_INDICES.1;
+
+        animation_timer.set_duration(Duration::from_secs_f32(SLIDE_TIMER));
         animation_timer.reset();
 
         if let Some(atlas) = sprite.texture_atlas.as_mut() {
@@ -304,6 +326,43 @@ fn update_player_drift(
     }
 }
 
+fn find_transition_state(
+    keyboard_input: &ButtonInput<KeyCode>,
+    player_direction: &State<PlayerDirection>,
+    next_player_state: &mut NextState<PlayerState>,
+    next_player_direction: &mut NextState<PlayerDirection>,
+) {
+    let right_is_pressed = keyboard_input.pressed(KeyCode::KeyD);
+    let left_is_pressed = keyboard_input.pressed(KeyCode::KeyA);
+    let control_is_pressed = keyboard_input.pressed(KeyCode::ControlLeft);
+    // Set to run if only only arrow key is pressed
+    if (right_is_pressed || left_is_pressed) && !(right_is_pressed && left_is_pressed) {
+        if control_is_pressed {
+            next_player_state.set(PlayerState::CrouchWalk);
+        } else {
+            next_player_state.set(PlayerState::Run);
+        }
+        match player_direction.get() {
+            PlayerDirection::Right => {
+                if left_is_pressed {
+                    next_player_direction.set(PlayerDirection::Left);
+                }
+            }
+            PlayerDirection::Left => {
+                if right_is_pressed {
+                    next_player_direction.set(PlayerDirection::Right);
+                }
+            }
+        }
+    } else {
+        if control_is_pressed {
+            next_player_state.set(PlayerState::Crouch);
+        } else {
+            next_player_state.set(PlayerState::Idle);
+        }
+    }
+}
+
 fn update_player_state(
     query: Query<
         (
@@ -321,17 +380,16 @@ fn update_player_state(
 ) {
     let pressed_right = keyboard_input.just_pressed(KeyCode::KeyD);
     let released_right = keyboard_input.just_released(KeyCode::KeyD);
-    let right_is_pressed = keyboard_input.pressed(KeyCode::KeyD);
 
     let pressed_left = keyboard_input.just_pressed(KeyCode::KeyA);
     let released_left = keyboard_input.just_released(KeyCode::KeyA);
-    let left_is_pressed = keyboard_input.pressed(KeyCode::KeyA);
 
     let pressed_space = keyboard_input.just_pressed(KeyCode::Space);
 
     let pressed_control = keyboard_input.just_pressed(KeyCode::ControlLeft);
     let released_control = keyboard_input.just_released(KeyCode::ControlLeft);
-    let control_is_pressed = keyboard_input.pressed(KeyCode::ControlLeft);
+
+    let pressed_shift = keyboard_input.just_pressed(KeyCode::ShiftLeft);
 
     match player_state.get() {
         PlayerState::Idle => {
@@ -365,6 +423,9 @@ fn update_player_state(
             } else if pressed_control {
                 next_player_state.set(PlayerState::CrouchWalk);
             } else {
+                if pressed_shift {
+                    next_player_state.set(PlayerState::Slide);
+                }
                 if released_right && pressed_left {
                     // Was Run Right, set to Run Left.
                     next_player_direction.set(PlayerDirection::Left);
@@ -374,7 +435,7 @@ fn update_player_state(
                 } else if released_left && pressed_right {
                     // Was Run Left, set to Run Right.
                     next_player_direction.set(PlayerDirection::Right);
-                } else if released_left || pressed_right {
+                } else if (released_left || pressed_right) && !pressed_shift {
                     // Was Run Left, set to Idle Left.
                     next_player_state.set(PlayerState::Idle);
                 }
@@ -390,34 +451,12 @@ fn update_player_state(
         PlayerState::JumpFall => {
             if let Ok((controller_output, _, _)) = query.single() {
                 if controller_output.grounded {
-                    // Set to run if only only arrow key is pressed
-                    if (right_is_pressed || left_is_pressed)
-                        && !(right_is_pressed && left_is_pressed)
-                    {
-                        if control_is_pressed {
-                            next_player_state.set(PlayerState::CrouchWalk);
-                        } else {
-                            next_player_state.set(PlayerState::Run);
-                        }
-                        match player_direction.get() {
-                            PlayerDirection::Right => {
-                                if left_is_pressed {
-                                    next_player_direction.set(PlayerDirection::Left);
-                                }
-                            }
-                            PlayerDirection::Left => {
-                                if right_is_pressed {
-                                    next_player_direction.set(PlayerDirection::Right);
-                                }
-                            }
-                        }
-                    } else {
-                        if control_is_pressed {
-                            next_player_state.set(PlayerState::Crouch);
-                        } else {
-                            next_player_state.set(PlayerState::Idle);
-                        }
-                    }
+                    find_transition_state(
+                        &keyboard_input,
+                        &player_direction,
+                        &mut next_player_state,
+                        &mut next_player_direction,
+                    );
                 }
             }
         }
@@ -457,6 +496,18 @@ fn update_player_state(
                 }
             }
         }
+        PlayerState::Slide => {
+            if let Ok((_, _, timer)) = query.single() {
+                if timer.just_finished() {
+                    find_transition_state(
+                        &keyboard_input,
+                        &player_direction,
+                        &mut next_player_state,
+                        &mut next_player_direction,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -472,8 +523,8 @@ fn move_player(
 
         match player_state.get() {
             PlayerState::Run => match player_direction.get() {
-                PlayerDirection::Right => movement.x += PLAYER_SPEED,
-                PlayerDirection::Left => movement.x -= PLAYER_SPEED,
+                PlayerDirection::Right => movement.x += PLAYER_RUN_SPEED,
+                PlayerDirection::Left => movement.x -= PLAYER_RUN_SPEED,
             },
             PlayerState::CrouchWalk => match player_direction.get() {
                 PlayerDirection::Right => movement.x += PLAYER_CROUCH_SPEED,
@@ -491,6 +542,10 @@ fn move_player(
                 PlayerDrift::Right => movement.x += PLAYER_DRIFT,
                 PlayerDrift::Left => movement.x -= PLAYER_DRIFT,
                 PlayerDrift::None => (),
+            },
+            PlayerState::Slide => match player_direction.get() {
+                PlayerDirection::Right => movement.x += PLAYER_SLIDE_SPEED,
+                PlayerDirection::Left => movement.x -= PLAYER_SLIDE_SPEED,
             },
             _ => (),
         }
